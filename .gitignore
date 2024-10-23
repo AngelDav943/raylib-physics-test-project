@@ -1,0 +1,7 @@
+*.exe
+*.dsym
+*.apk
+main
+/build
+/android.*
+debugging.md
