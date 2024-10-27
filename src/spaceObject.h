@@ -78,8 +78,8 @@ public:
 		if (screenHitNormals.x != 0 || screenHitNormals.y != 0)
 		{
 			Vector2 reflections = {
-				abs(screenHitNormals.x) == 1 ? -1 : 1, 
-				abs(screenHitNormals.y) == 1 ? -1 : 1
+				static_cast<float>(abs(screenHitNormals.x) == 1 ? -1 : 1), 
+				static_cast<float>(abs(screenHitNormals.y) == 1 ? -1 : 1)
 			};
 
 			Vector2 newVelocity = {
@@ -88,8 +88,8 @@ public:
 			};
 
 			Vector2 drag = {
-				screenHitNormals.x != 0 ? 0.99f : 1,
 				screenHitNormals.y != 0 ? 0.99f : 1,
+				screenHitNormals.x != 0 ? 0.99f : 1,
 			};
 
 			velocity = Vector2Multiply(newVelocity, drag);
