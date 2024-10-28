@@ -39,10 +39,10 @@ public:
 	{
 		Vector2 halfSize = {sizeBounds.x * 0.5f, sizeBounds.y * 0.5f};
 
-		int top 	= -((pos.y - halfSize.y) < 0);
-		int left 	= -((pos.x - halfSize.x) < 0);
-		int bottom 	= (pos.y + halfSize.y) > GetScreenHeight();
-		int right 	= (pos.x + halfSize.x) > GetScreenWidth();
+		int top = -((pos.y - halfSize.y) < 0);
+		int left = -((pos.x - halfSize.x) < 0);
+		int bottom = (pos.y + halfSize.y) > GetScreenHeight();
+		int right = (pos.x + halfSize.x) > GetScreenWidth();
 
 		return {
 			static_cast<float>(right + left),
@@ -78,9 +78,8 @@ public:
 		if (screenHitNormals.x != 0 || screenHitNormals.y != 0)
 		{
 			Vector2 reflections = {
-				static_cast<float>(abs(screenHitNormals.x) == 1 ? -1 : 1), 
-				static_cast<float>(abs(screenHitNormals.y) == 1 ? -1 : 1)
-			};
+				static_cast<float>(abs(screenHitNormals.x) == 1 ? -1 : 1),
+				static_cast<float>(abs(screenHitNormals.y) == 1 ? -1 : 1)};
 
 			Vector2 newVelocity = {
 				velocity.x * reflections.x,
@@ -88,27 +87,26 @@ public:
 			};
 
 			Vector2 drag = {
-				screenHitNormals.y != 0 ? 0.99f : 1,
-				screenHitNormals.x != 0 ? 0.99f : 1,
+				screenHitNormals.y != 0 ? 0.9f : 1,
+				screenHitNormals.x != 0 ? 0.9f : 1,
 			};
 
 			velocity = Vector2Multiply(newVelocity, drag);
-
-			if (screenHitNormals.x == 0)
-			{
-				position.x = newPosition.x;
-			}
-
-			if (screenHitNormals.y == 0)
-			{
-				position.y = newPosition.y;
-			}
-
-			return;
 		}
 
-		position = newPosition;
-		force = {0, 0}; // Reset net force
+		if (screenHitNormals.x == 0)
+		{
+			position.x = newPosition.x;
+			force.x = 0;
+		}
+
+		if (screenHitNormals.y == 0)
+		{
+			position.y = newPosition.y;
+			force.y = 0;
+		}
+		// position = newPosition;
+		// force = {0, 0}; // Reset net force
 	}
 };
 
