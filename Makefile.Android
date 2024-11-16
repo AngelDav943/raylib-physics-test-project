@@ -23,7 +23,7 @@
 
 # Define required raylib variables
 PLATFORM               ?= PLATFORM_ANDROID
-RAYLIB_PATH            ?= ..\..
+RAYLIB_PATH        	   ?= C:/raylib/raylib
 
 # Define Android architecture (armeabi-v7a, arm64-v8a, x86, x86-64) and API version
 ANDROID_ARCH           ?= ARM64
@@ -55,19 +55,19 @@ PROJECT_SOURCE_FILES   ?= src/main.cpp
 PROJECT_SOURCE_DIRS = $(sort $(dir $(PROJECT_SOURCE_FILES)))
 
 # Android app configuration variables
-APP_LABEL_NAME ?= testGame
+APP_LABEL_NAME ?= physicsTest
 APP_COMPANY_NAME ?= angel
-APP_PRODUCT_NAME ?= rgame
+APP_PRODUCT_NAME ?= phystestgame
 APP_VERSION_CODE ?= 1
 APP_VERSION_NAME ?= 1.0
 APP_ICON_LDPI ?= $(RAYLIB_PATH)\logo\raylib_36x36.png
 APP_ICON_MDPI ?= $(RAYLIB_PATH)\logo\raylib_48x48.png
 APP_ICON_HDPI ?= $(RAYLIB_PATH)\logo\raylib_72x72.png
 APP_SCREEN_ORIENTATION ?= landscape
-APP_KEYSTORE_PASS ?= raylib
+APP_KEYSTORE_PASS ?= angeltestraylibproject
 
 # Library type used for raylib: STATIC (.a) or SHARED (.so/.dll)
-RAYLIB_LIBTYPE ?= STATIC
+RAYLIB_LIBTYPE ?= SHARED
 
 # Library path for libraylib.a/libraylib.so
 RAYLIB_LIB_PATH = $(RAYLIB_PATH)\src
@@ -75,6 +75,8 @@ RAYLIB_LIB_PATH = $(RAYLIB_PATH)\src
 # Shared libs must be added to APK if required
 ifeq ($(RAYLIB_LIBTYPE),SHARED)
     PROJECT_SHARED_LIBS = lib/$(ANDROID_ARCH_NAME)/libraylib.so
+    PROJECT_SHARED_LIBS += lib/$(ANDROID_ARCH_NAME)/libc++_shared.so
+    PROJECT_SHARED_LIBS += lib/$(ANDROID_ARCH_NAME)/libraylib.500.so
 endif
 
 # Compiler and archiver
@@ -100,14 +102,15 @@ CFLAGS += -Wall -Wa,--noexecstack -Wformat -Werror=format-security -no-canonical
 CFLAGS += -DANDROID -DPLATFORM_ANDROID -D__ANDROID_API__=$(ANDROID_API_VERSION)
 
 # Paths containing required header files
-INCLUDE_PATHS = -I. -I$(RAYLIB_PATH)/src -I$(RAYLIB_PATH)/src/external/android/native_app_glue
+INCLUDE_PATHS = -I. -I$(RAYLIB_PATH)/src -I C:\android-ndk\sources\android\native_app_glue
 
 # Linker options
 LDFLAGS = -Wl,-soname,lib$(PROJECT_LIBRARY_NAME).so -Wl,--exclude-libs,libatomic.a
 LDFLAGS += -Wl,--build-id -Wl,--no-undefined -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -Wl,--warn-shared-textrel -Wl,--fatal-warnings
 LDFLAGS += -u ANativeActivity_onCreate
-LDFLAGS += -L. -L$(PROJECT_BUILD_PATH)/obj -L$(PROJECT_BUILD_PATH)/lib/$(ANDROID_ARCH_NAME) -L$(ANDROID_TOOLCHAIN)\sysroot\usr\lib
+LDFLAGS += -L. -L$(PROJECT_BUILD_PATH)/obj -L$(PROJECT_BUILD_PATH)/lib/$(ANDROID_ARCH_NAME) -L$(ANDROID_TOOLCHAIN)/sysroot/usr/lib
 LDFLAGS += -fPIC
+LDFLAGS += -v
 
 # Define any libraries to link into executable
 LDLIBS = -lm -lc++ -lraylib -llog -landroid -lEGL -lGLESv2 -lOpenSLES -ldl
@@ -128,7 +131,9 @@ all: create_temp_project_dirs \
      compile_project_class_dex \
      create_project_apk_package \
      sign_project_apk_package \
-     zipalign_project_apk_package
+     zipalign_project_apk_package \
+	 install \
+	 start
 
 # Create required temp directories for APK building
 create_temp_project_dirs:
@@ -159,9 +164,17 @@ endef
 copy_project_required_libs:
 ifeq ($(RAYLIB_LIBTYPE),SHARED)
 	copy /Y "$(RAYLIB_LIB_PATH)\libraylib.so" "$(PROJECT_BUILD_PATH)\lib\$(ANDROID_ARCH_NAME)\libraylib.so"
+	copy /Y "$(RAYLIB_LIB_PATH)\libraylib.so" "$(PROJECT_BUILD_PATH)\lib\$(ANDROID_ARCH_NAME)\libraylib.500.so"
 endif
 ifeq ($(RAYLIB_LIBTYPE),STATIC)
 	copy /Y "$(RAYLIB_LIB_PATH)\libraylib.a" "$(PROJECT_BUILD_PATH)\lib\$(ANDROID_ARCH_NAME)\libraylib.a"
+endif
+# Ensure libc++_shared.so is copied to the APK
+ifeq ($(ANDROID_ARCH),ARM)
+	copy /Y "$(ANDROID_TOOLCHAIN)\sysroot\usr\lib\arm-linux-androideabi\libc++_shared.so" "$(PROJECT_BUILD_PATH)\lib\$(ANDROID_ARCH_NAME)\libc++_shared.so"
+endif
+ifeq ($(ANDROID_ARCH),ARM64)
+	copy /Y "$(ANDROID_TOOLCHAIN)\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so" "$(PROJECT_BUILD_PATH)\lib\$(ANDROID_ARCH_NAME)\libc++_shared.so"
 endif
 
 # Copy project required resources: strings.xml, icon.png, assets
@@ -173,23 +186,35 @@ copy_project_resources:
 	@echo ^<resources^> >> $(PROJECT_BUILD_PATH)\res\values\strings.xml
 	@echo ^<string name="app_name"^>$(APP_LABEL_NAME)^</string^> >> "$(PROJECT_BUILD_PATH)\res\values\strings.xml"
 	@echo ^</resources^> >> $(PROJECT_BUILD_PATH)\res\values\strings.xml
+# Copying all assets
+	xcopy assets "$(PROJECT_BUILD_PATH)\assets\resources" /s /i /y
+
+# Check if NativeLoader.java exists
+NATIVE_LOADER_EXISTS := $(wildcard $(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java)
 
 # Generate loader script for Java
 generate_loader_script:
+ifeq ($(NATIVE_LOADER_EXISTS),)
 	@echo package com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME); > "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo. >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo public class NativeLoader extends android.app.NativeActivity { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo     static { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
-ifeq ($(RAYLIB_LIBTYPE),SHARED)
-	@echo         System.loadLibrary("raylib"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
-endif
 	@echo         System.loadLibrary("$(PROJECT_LIBRARY_NAME)"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo         System.loadLibrary("raylib"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo     } >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo } >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+else
+	@echo "NativeLoader.java already exists, skipping generation"
+endif
+
+
+# Check if AndroidManifest.xml exists
+NATIVE_LOADER_EXISTS := $(wildcard $(PROJECT_BUILD_PATH)/AndroidManifest.xml)
 
 # Generate AndroidManifest.xml with all the required options
 # NOTE: Probably not the bet way to generate this file... but it works.
 generate_android_manifest:
+ifeq ($(NATIVE_LOADER_EXISTS),)
 	@echo ^<?xml version="1.0" encoding="utf-8"^?^> > $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo ^<manifest xmlns:android="http://schemas.android.com/apk/res/android" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo         package="com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME)"  >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
@@ -200,6 +225,7 @@ generate_android_manifest:
 	@echo         ^<activity android:name="com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME).NativeLoader" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo             android:theme="@android:style/Theme.NoTitleBar.Fullscreen" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo             android:configChanges="orientation|keyboardHidden|screenSize" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
+	@echo             android:exported="true" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo             android:screenOrientation="$(APP_SCREEN_ORIENTATION)" android:launchMode="singleTask" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo             android:clearTaskOnLaunch="true"^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo             ^<meta-data android:name="android.app.lib_name" android:value="$(PROJECT_LIBRARY_NAME)" /^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
@@ -210,11 +236,22 @@ generate_android_manifest:
 	@echo         ^</activity^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo     ^</application^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo ^</manifest^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
+else
+	@echo "AndroidManifest.xml already exists, skipping generation"
+endif
 
 # Generate storekey for APK signing: $(PROJECT_NAME).keystore
 # NOTE: Configure here your Distinguished Names (-dname) if required!
 generate_apk_keystore:
-	if not exist "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" "$(JAVA_HOME)/bin/keytool" -genkeypair -validity 1000 -dname "CN=$(APP_COMPANY_NAME),O=Android,C=ES" -keystore "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" -storepass $(APP_KEYSTORE_PASS) -keypass $(APP_KEYSTORE_PASS) -alias $(PROJECT_NAME)Key -keyalg RSA
+	if not exist "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" "$(JAVA_HOME)/bin/keytool" \
+		-genkeypair -v -validity 1000 \
+		-dname "CN=$(APP_COMPANY_NAME),O=Android,C=ES" \
+		-keystore "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" \
+		-storepass $(APP_KEYSTORE_PASS) \
+		-keypass $(APP_KEYSTORE_PASS) \
+		-alias $(PROJECT_NAME)Key \
+		-keyalg RSA \
+		-sigalg SHA256withRSA
 
 # Configure project packaging
 config_project_package:
@@ -235,29 +272,64 @@ compile_project_class:
 
 # Compile .class files into Dalvik executable bytecode (.dex)
 # NOTE: Since Android 5.0, Dalvik interpreter (JIT) has been replaced by ART (AOT)
-CLASS_FILES = $(powershell -Command "Get-ChildItem -Recurse -Filter '*.class' '$(PROJECT_BUILD_PATH)/obj' | ForEach-Object { $_.FullName }")
 compile_project_class_dex:
-	"$(ANDROID_BUILD_TOOLS)/d8" $(CLASS_FILES) --output "$(PROJECT_BUILD_PATH)/bin"
+	"$(ANDROID_BUILD_TOOLS)/d8" --output "$(PROJECT_BUILD_PATH)/bin/" --classpath "$(ANDROID_HOME)/platforms/android-$(ANDROID_API_VERSION)/android.jar" $(PROJECT_BUILD_PATH)/obj/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/*.class
 
 # Create Android APK package: bin/$(PROJECT_NAME).unsigned.apk
 # NOTE: Requires compiled classes.dex and lib$(PROJECT_LIBRARY_NAME).so
 # NOTE: Use -A resources to define additional directory in which to find raw asset files
 create_project_apk_package:
-	$(ANDROID_BUILD_TOOLS)/aapt package -f -M $(PROJECT_BUILD_PATH)/AndroidManifest.xml -S $(PROJECT_BUILD_PATH)/res -A $(PROJECT_BUILD_PATH)/assets -I $(ANDROID_HOME)/platforms/android-$(ANDROID_API_VERSION)/android.jar -F $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk $(PROJECT_BUILD_PATH)/bin
+	$(ANDROID_BUILD_TOOLS)/aapt package -f -M $(PROJECT_BUILD_PATH)/AndroidManifest.xml -S $(PROJECT_BUILD_PATH)/res -A $(PROJECT_BUILD_PATH)/assets -I $(ANDROID_HOME)/platforms/android-$(ANDROID_API_VERSION)/android.jar -F $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk -v
 	cd $(PROJECT_BUILD_PATH) && $(ANDROID_BUILD_TOOLS)/aapt add bin/$(PROJECT_NAME).unsigned.apk lib/$(ANDROID_ARCH_NAME)/lib$(PROJECT_LIBRARY_NAME).so $(PROJECT_SHARED_LIBS)
+	cd $(PROJECT_BUILD_PATH)/bin && $(ANDROID_BUILD_TOOLS)/aapt add $(PROJECT_NAME).unsigned.apk classes.dex
 
 # Create signed APK package using generated Key: bin/$(PROJECT_NAME).signed.apk
+# "$(JAVA_HOME)/bin/jarsigner" -keystore $(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore -storepass $(APP_KEYSTORE_PASS) -keypass $(APP_KEYSTORE_PASS) -signedjar $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).signed.apk $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk $(PROJECT_NAME)Key -timestamp
 sign_project_apk_package:
-	$(JAVA_HOME)/bin/jarsigner -keystore $(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore -storepass $(APP_KEYSTORE_PASS) -keypass $(APP_KEYSTORE_PASS) -signedjar $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).signed.apk $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk $(PROJECT_NAME)Key
+	@echo SIGNING APK
+	"$(JAVA_HOME)/bin/jarsigner" -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+		-keystore "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" \
+		-storepass $(APP_KEYSTORE_PASS) \
+		-keypass $(APP_KEYSTORE_PASS) \
+		"$(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk" \
+		$(PROJECT_NAME)Key
+
+	@echo v2 SIGNING
+	"$(ANDROID_BUILD_TOOLS)/apksigner" sign \
+		--ks "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" \
+		--ks-pass pass:$(APP_KEYSTORE_PASS) \
+		--key-pass pass:$(APP_KEYSTORE_PASS) \
+		--out "$(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).signed.apk" \
+		-v \
+		--v1-signing-enabled true \
+		--v2-signing-enabled true \
+		--min-sdk-version 32 \
+		"$(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk"
+	@echo SIGNING ENDED
 
 # Create zip-aligned APK package: $(PROJECT_NAME).apk
 zipalign_project_apk_package:
-	$(ANDROID_BUILD_TOOLS)/zipalign -f 4 $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).signed.apk $(PROJECT_NAME).apk
+	$(ANDROID_BUILD_TOOLS)/zipalign -f 4 $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).signed.apk $(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).aligned.apk
+
+	@echo Re signing the apk
+	"$(ANDROID_BUILD_TOOLS)/apksigner" sign \
+		--ks "$(PROJECT_BUILD_PATH)/$(PROJECT_NAME).keystore" \
+		--ks-pass pass:$(APP_KEYSTORE_PASS) \
+		--key-pass pass:$(APP_KEYSTORE_PASS) \
+		--out "$(PROJECT_NAME).apk" \
+		-v \
+		--v1-signing-enabled true \
+		--v2-signing-enabled true \
+		--min-sdk-version 32 \
+		"$(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).aligned.apk"
 
 # Install $(PROJECT_NAME).apk to default emulator/device
 # NOTE: Use -e (emulator) or -d (device) parameters if required
 install:
-	$(ANDROID_PLATFORM_TOOLS)/adb install --abi $(ANDROID_ARCH_NAME) -rds $(PROJECT_NAME).apk
+	$(ANDROID_PLATFORM_TOOLS)/adb install $(PROJECT_NAME).apk
+
+start:
+	$(ANDROID_PLATFORM_TOOLS)/adb shell am start -n com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME)/com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME).NativeLoader
 
 # Check supported ABI for the device (armeabi-v7a, arm64-v8a, x86, x86_64)
 check_device_abi:
