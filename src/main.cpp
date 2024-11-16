@@ -29,9 +29,14 @@ int main()
 
     while (!WindowShouldClose())
     {
-        if (IsCursorOnScreen())
-        {
+#ifdef PLATFORM_DESKTOP
+        bool checkGestures = IsCursorOnScreen();
+#else
+        bool checkGestures = true;
+#endif
 
+        if (checkGestures == true)
+        {
             // if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
             if (IsGestureDetected(GESTURE_TAP))
             {
