@@ -13,9 +13,19 @@ public:
 	string name = "";
 	Vector2 position;
 	Vector2 size;
+	Vector2 origin = {0.5f, 0.5f};
 	float rotation = 0;
 
 	Object() {}
+
+	const Rectangle getRec()
+	{
+		return {
+			position.x - (size.x * origin.x),
+			position.y - (size.y * origin.y),
+			size.x,
+			size.y};
+	}
 
 	virtual void Update() {}
 	virtual void Draw() = 0;
@@ -70,9 +80,7 @@ public:
 			velocity.y = 0;
 		}
 
-		// cout << "x:" << velocity.x << " y:" << velocity.y << endl;
 		Vector2 newPosition = Vector2Add(position, Vector2Scale(velocity, GetFrameTime()));
-
 		Vector2 screenHitNormals = CheckScreenCollisions(newPosition, size);
 
 		if (screenHitNormals.x != 0 || screenHitNormals.y != 0)
@@ -121,9 +129,9 @@ public:
 
 		Rectangle source = {0, 0, (float)texture.width, (float)texture.height};
 		Rectangle dest = {position.x, position.y, size.x, size.y};
-		Vector2 origin = {size.x * 0.5f, size.y * 0.5f};
+		Vector2 texOrigin = {size.x * origin.x, size.y * origin.y};
 
-		DrawTexturePro(texture, source, dest, origin, rotation, WHITE);
+		DrawTexturePro(texture, source, dest, texOrigin, rotation, WHITE);
 	}
 };
 
@@ -137,10 +145,55 @@ public:
 	}
 };
 
+class PhysicsManager
+{
+public:
+	void Solve(PhysicsObject *target, vector<Object *> children)
+	{
+		for (size_t i = 0; i < children.size(); i++)
+		{
+			Object *element = children[i];
+
+			// Ignore if object inside children is the same as the target
+			if (element == target)
+			{
+				continue;
+			}
+
+			// AABB Collision detection here...
+			bool checkAABB = CheckCollisionRecs(target->getRec(), element->getRec());
+
+			// If there's no collision continue...
+			if (checkAABB == false)
+			{
+				continue;
+			}
+
+			Rectangle collRect = GetCollisionRec(target->getRec(), element->getRec());
+			Vector2 distance = Vector2Subtract(element->position, target->position);
+
+			Color RectangleColor = BLUE;
+			if (distance.x < 0) RectangleColor = PURPLE;
+			if (distance.y < 0) RectangleColor = VIOLET;
+
+			DrawRectangle(collRect.x, collRect.y, collRect.width, collRect.height, RectangleColor);
+
+			// target->position.x -= collRect.x / 2;
+			// currentElement->position.x += collRect.x / 2;
+			// target->position.y -= collRect.y / 2;
+			// currentElement->position.y += collRect.y / 2;
+
+			// Solve collision here...
+			cout << "COLLISION HAPPENING AT: " << target->name << endl;
+		}
+	}
+};
+
 class ObjectManager
 {
 private:
 	vector<Object *> children;
+	PhysicsManager physicsManager;
 
 public:
 	template <typename T>
@@ -179,7 +232,7 @@ public:
 		for (size_t i = 0; i < children.size(); i++)
 		{
 			children[i]->Update();
-		}
+				}
 	}
 
 	void Draw()
@@ -187,6 +240,10 @@ public:
 		for (size_t i = 0; i < children.size(); i++)
 		{
 			children[i]->Draw();
+			if (PhysicsObject *element = dynamic_cast<PhysicsObject *>(children[i]))
+			{
+				physicsManager.Solve(element, children);
+			}
 		}
 	}
 
