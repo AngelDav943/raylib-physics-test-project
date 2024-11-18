@@ -113,9 +113,17 @@ public:
 class PhysicsCube : public PhysicsObject
 {
 public:
+	Texture2D texture;
+
 	void Draw() override
 	{
-		DrawRectanglePro({position.x, position.y, size.x, size.y}, {size.x * 0.5f, size.y * 0.5f}, rotation, ORANGE);
+		// DrawRectanglePro({position.x, position.y, size.x, size.y}, {size.x * 0.5f, size.y * 0.5f}, rotation, ORANGE);
+
+		Rectangle source = {0, 0, (float)texture.width, (float)texture.height};
+		Rectangle dest = {position.x, position.y, size.x, size.y};
+		Vector2 origin = {size.x * 0.5f, size.y * 0.5f};
+
+		DrawTexturePro(texture, source, dest, origin, rotation, WHITE);
 	}
 };
 

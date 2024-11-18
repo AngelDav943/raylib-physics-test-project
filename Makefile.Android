@@ -121,6 +121,7 @@ OBJS = $(patsubst %.cpp, $(PROJECT_BUILD_PATH)/obj/%.o, $(PROJECT_SOURCE_FILES))
 # Android APK building process
 all: create_temp_project_dirs \
      copy_project_required_libs \
+	 generate_res_icons \
      copy_project_resources \
      generate_loader_script \
      generate_android_manifest \
@@ -133,7 +134,8 @@ all: create_temp_project_dirs \
      sign_project_apk_package \
      zipalign_project_apk_package \
 	 install \
-	 start
+	 start \
+	 clean
 
 # Create required temp directories for APK building
 create_temp_project_dirs:
@@ -177,17 +179,20 @@ ifeq ($(ANDROID_ARCH),ARM64)
 	copy /Y "$(ANDROID_TOOLCHAIN)\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so" "$(PROJECT_BUILD_PATH)\lib\$(ANDROID_ARCH_NAME)\libc++_shared.so"
 endif
 
+# Generate res images (icons)
+generate_res_icons:
+	cd resources\icons && cmd /c android_icons_generator.bat
+	if exist $(PROJECT_BUILD_PATH) xcopy resources\res "$(PROJECT_BUILD_PATH)\res" /s /i /y
+	rmdir "resources/res" /s /q
+
 # Copy project required resources: strings.xml, icon.png, assets
 copy_project_resources:
-	copy "$(APP_ICON_LDPI)" "$(PROJECT_BUILD_PATH)\res\drawable-ldpi\icon.png" /Y
-	copy "$(APP_ICON_MDPI)" "$(PROJECT_BUILD_PATH)\res\drawable-mdpi\icon.png" /Y
-	copy "$(APP_ICON_HDPI)" "$(PROJECT_BUILD_PATH)\res\drawable-hdpi\icon.png" /Y
 	@echo ^<?xml version="1.0" encoding="utf-8"?^> > $(PROJECT_BUILD_PATH)\res\values\strings.xml
 	@echo ^<resources^> >> $(PROJECT_BUILD_PATH)\res\values\strings.xml
 	@echo ^<string name="app_name"^>$(APP_LABEL_NAME)^</string^> >> "$(PROJECT_BUILD_PATH)\res\values\strings.xml"
 	@echo ^</resources^> >> $(PROJECT_BUILD_PATH)\res\values\strings.xml
 # Copying all assets
-	xcopy assets "$(PROJECT_BUILD_PATH)\assets\resources" /s /i /y
+	if exist assets xcopy assets "$(PROJECT_BUILD_PATH)\assets" /s /i /y
 
 # Check if NativeLoader.java exists
 NATIVE_LOADER_EXISTS := $(wildcard $(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java)
@@ -197,24 +202,34 @@ generate_loader_script:
 ifeq ($(NATIVE_LOADER_EXISTS),)
 	@echo package com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME); > "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo. >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
-	@echo public class NativeLoader extends android.app.NativeActivity { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo import android.app.NativeActivity; >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo import android.util.Log; >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo. >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo public class NativeLoader extends NativeActivity { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo     static { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
-	@echo         System.loadLibrary("$(PROJECT_LIBRARY_NAME)"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
-	@echo         System.loadLibrary("raylib"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
-	@echo     } >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo 	      try { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo             System.loadLibrary("$(PROJECT_LIBRARY_NAME)"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo             System.loadLibrary("raylib"); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo 	          Log.d("NativeLoader", "Native libraries loaded successfully."); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo 	      } catch (UnsatisfiedLinkError e) { >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo 	          Log.e("NativeLoader", "Error loading native libraries: " + e.getMessage()); >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo         } >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
+	@echo 	  } >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 	@echo } >> "$(PROJECT_BUILD_PATH)/src/com/$(APP_COMPANY_NAME)/$(APP_PRODUCT_NAME)/NativeLoader.java"
 else
 	@echo "NativeLoader.java already exists, skipping generation"
 endif
 
 
-# Check if AndroidManifest.xml exists
-NATIVE_LOADER_EXISTS := $(wildcard $(PROJECT_BUILD_PATH)/AndroidManifest.xml)
+# Check if a AndroidManifest.xml exists on the project folder to copy
+NATIVE_LOADER_EXISTS := $(wildcard AndroidManifest.xml)
 
 # Generate AndroidManifest.xml with all the required options
 # NOTE: Probably not the bet way to generate this file... but it works.
 generate_android_manifest:
 ifeq ($(NATIVE_LOADER_EXISTS),)
+	@echo "Generating a new AndroidManifest.xml"
+
 	@echo ^<?xml version="1.0" encoding="utf-8"^?^> > $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo ^<manifest xmlns:android="http://schemas.android.com/apk/res/android" >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo         package="com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME)"  >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
@@ -237,7 +252,8 @@ ifeq ($(NATIVE_LOADER_EXISTS),)
 	@echo     ^</application^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 	@echo ^</manifest^> >> $(PROJECT_BUILD_PATH)/AndroidManifest.xml
 else
-	@echo "AndroidManifest.xml already exists, skipping generation"
+	@echo "Using existing AndroidManifest.xml"
+	copy /Y "AndroidManifest.xml" "$(PROJECT_BUILD_PATH)/AndroidManifest.xml"
 endif
 
 # Generate storekey for APK signing: $(PROJECT_NAME).keystore
@@ -326,23 +342,14 @@ zipalign_project_apk_package:
 # Install $(PROJECT_NAME).apk to default emulator/device
 # NOTE: Use -e (emulator) or -d (device) parameters if required
 install:
+	$(ANDROID_PLATFORM_TOOLS)/adb shell pm uninstall com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME)
 	$(ANDROID_PLATFORM_TOOLS)/adb install $(PROJECT_NAME).apk
 
 start:
 	$(ANDROID_PLATFORM_TOOLS)/adb shell am start -n com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME)/com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME).NativeLoader
 
-# Check supported ABI for the device (armeabi-v7a, arm64-v8a, x86, x86_64)
-check_device_abi:
-	$(ANDROID_PLATFORM_TOOLS)/adb shell getprop ro.product.cpu.abi
-
 # Monitorize output log coming from device, only raylib tag
 logcat:
-	$(ANDROID_PLATFORM_TOOLS)/adb logcat -c
-	$(ANDROID_PLATFORM_TOOLS)/adb logcat raylib:V *:S
-
-# Install and monitorize $(PROJECT_NAME).apk to default emulator/device
-deploy:
-	$(ANDROID_PLATFORM_TOOLS)/adb install -r $(PROJECT_NAME).apk
 	$(ANDROID_PLATFORM_TOOLS)/adb logcat -c
 	$(ANDROID_PLATFORM_TOOLS)/adb logcat raylib:V *:S
 
