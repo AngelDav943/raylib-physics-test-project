@@ -36,6 +36,22 @@ private:
 
 const Vector2 gravity = {0, 10};
 
+// Returns the collision normal
+Vector2 CheckScreenCollisions(Vector2 pos, Vector2 sizeBounds)
+{
+	Vector2 halfSize = {sizeBounds.x * 0.5f, sizeBounds.y * 0.5f};
+
+	int top = (pos.y - halfSize.y) < 0 ? 1 : 0;
+	int left = (pos.x - halfSize.x) < 0 ? 1 : 0;
+	int bottom = (pos.y + halfSize.y) > GetScreenHeight() ? 1 : 0;
+	int right = (pos.x + halfSize.x) > GetScreenWidth() ? 1 : 0;
+
+	return {
+		static_cast<float>(right + left),
+		static_cast<float>(top + bottom),
+	};
+}
+
 class PhysicsObject : public Object
 {
 public:
@@ -43,22 +59,7 @@ public:
 	Vector2 force;
 	float mass = 1.0f;
 	bool hasGravity = true;
-
-	// Returns the collision normal
-	Vector2 CheckScreenCollisions(Vector2 pos, Vector2 sizeBounds) const
-	{
-		Vector2 halfSize = {sizeBounds.x * 0.5f, sizeBounds.y * 0.5f};
-
-		int top = -((pos.y - halfSize.y) < 0);
-		int left = -((pos.x - halfSize.x) < 0);
-		int bottom = (pos.y + halfSize.y) > GetScreenHeight();
-		int right = (pos.x + halfSize.x) > GetScreenWidth();
-
-		return {
-			static_cast<float>(right + left),
-			static_cast<float>(top + bottom),
-		};
-	}
+	const float terminalVelocity = 500.0f; // Max velocity (pixels per second)
 
 	void Update() override
 	{
@@ -68,17 +69,11 @@ public:
 			force = Vector2Add(force, Vector2Scale(gravity, mass));
 		}
 
-		velocity = Vector2Add(velocity, Vector2Divide(force, {mass, mass}));
-
-		if (isinf(velocity.x) || isnan(velocity.x))
-		{
-			velocity.x = 0;
-		}
-
-		if (isinf(velocity.y) || isnan(velocity.y))
-		{
-			velocity.y = 0;
-		}
+		// Update velocity by adding force divided by mass (F = ma -> a = F / m)
+		velocity = Vector2Clamp(
+			Vector2Add(velocity, Vector2Scale(force, 1.0f / mass)),
+			Vector2Scale({1, 1}, -terminalVelocity),
+			Vector2Scale({1, 1}, terminalVelocity));
 
 		Vector2 newPosition = Vector2Add(position, Vector2Scale(velocity, GetFrameTime()));
 		Vector2 screenHitNormals = CheckScreenCollisions(newPosition, size);
@@ -89,32 +84,26 @@ public:
 				static_cast<float>(abs(screenHitNormals.x) == 1 ? -1 : 1),
 				static_cast<float>(abs(screenHitNormals.y) == 1 ? -1 : 1)};
 
-			Vector2 newVelocity = {
-				velocity.x * reflections.x,
-				velocity.y * reflections.y,
-			};
+			velocity = Vector2Multiply(velocity, reflections);
 
 			Vector2 drag = {
-				screenHitNormals.y != 0 ? 0.9f : 1,
-				screenHitNormals.x != 0 ? 0.9f : 1,
-			};
+				(screenHitNormals.y != 0 ? 0.9f : 1.0f),
+				(screenHitNormals.x != 0 ? 0.9f : 1.0f)};
 
-			velocity = Vector2Multiply(newVelocity, drag);
+			velocity = Vector2Multiply(velocity, drag);
 		}
 
+		// Update the position if no collision occurs and reset force to prevent drift
 		if (screenHitNormals.x == 0)
 		{
 			position.x = newPosition.x;
 			force.x = 0;
 		}
-
 		if (screenHitNormals.y == 0)
 		{
 			position.y = newPosition.y;
 			force.y = 0;
 		}
-		// position = newPosition;
-		// force = {0, 0}; // Reset net force
 	}
 };
 
@@ -145,6 +134,17 @@ public:
 	}
 };
 
+void drawRectLine(Vector2 startingPoint, Vector2 endingPoint, float thickness, Color LineColor)
+{
+	Rectangle rect = {
+		startingPoint.x - (thickness / 2),
+		startingPoint.y - (thickness / 2),
+		(endingPoint.x + (thickness / 2)) - startingPoint.x,
+		(endingPoint.y + (thickness / 2)) - startingPoint.y};
+
+	DrawRectangle(rect.x, rect.y, rect.width, rect.height, LineColor);
+}
+
 class PhysicsManager
 {
 public:
@@ -154,37 +154,86 @@ public:
 		{
 			Object *element = children[i];
 
-			// Ignore if object inside children is the same as the target
+			// Ignore self-collision
 			if (element == target)
-			{
 				continue;
-			}
 
 			// AABB Collision detection here...
 			bool checkAABB = CheckCollisionRecs(target->getRec(), element->getRec());
 
 			// If there's no collision continue...
 			if (checkAABB == false)
-			{
 				continue;
+
+			Rectangle targetRect = target->getRec();
+			Rectangle elementRect = element->getRec();
+			Rectangle overlapRect = GetCollisionRec(targetRect, elementRect);
+
+			Vector2 hitNormal = {0, 0};
+			float depth = 0.0f;
+
+			if (overlapRect.width < overlapRect.height)
+			{
+				hitNormal = {targetRect.x < elementRect.x ? -1.0f : 1.0f, 0.0f};
+				depth = overlapRect.width;
+			}
+			else
+			{
+				hitNormal = {0.0f, targetRect.y < elementRect.y ? -1.0f : 1.0f};
+				depth = overlapRect.height;
 			}
 
-			Rectangle collRect = GetCollisionRec(target->getRec(), element->getRec());
-			Vector2 distance = Vector2Subtract(element->position, target->position);
+			float dotProductTarget = Vector2DotProduct(target->velocity, hitNormal);
 
-			Color RectangleColor = BLUE;
-			if (distance.x < 0) RectangleColor = PURPLE;
-			if (distance.y < 0) RectangleColor = VIOLET;
-
-			DrawRectangle(collRect.x, collRect.y, collRect.width, collRect.height, RectangleColor);
-
-			// target->position.x -= collRect.x / 2;
-			// currentElement->position.x += collRect.x / 2;
-			// target->position.y -= collRect.y / 2;
-			// currentElement->position.y += collRect.y / 2;
+			if (dotProductTarget < 0)
+			{
+				target->velocity = Vector2Subtract(target->velocity, Vector2Scale(hitNormal, 2 * dotProductTarget));
+			}
 
 			// Solve collision here...
-			cout << "COLLISION HAPPENING AT: " << target->name << endl;
+			Vector2 separation = Vector2Scale(hitNormal, depth);
+
+			if (PhysicsObject *physElement = dynamic_cast<PhysicsObject *>(children[i]))
+			{
+				separation = Vector2Scale(hitNormal, depth / 2);
+				float dotProductElement = Vector2DotProduct(physElement->velocity, hitNormal); //(physElement->velocity.x * hitNormal.x) + (physElement->velocity.y * hitNormal.y);
+
+				if (dotProductElement < 0)
+				{
+					physElement->velocity = Vector2Subtract(physElement->velocity, Vector2Scale(hitNormal, 2 * dotProductElement));
+				}
+
+				Vector2 newPosition = Vector2Subtract(physElement->position, separation);
+				Vector2 elementScreenNormals = CheckScreenCollisions(newPosition, physElement->size);
+
+				if (elementScreenNormals.x == 0)
+				{
+					physElement->position.x = newPosition.x;
+				}
+				if (elementScreenNormals.y == 0)
+				{
+					physElement->position.y = newPosition.y;
+				}
+			}
+
+			Vector2 targetNewPosition = Vector2Add(target->position, separation);
+			Vector2 targetScreenNormals = CheckScreenCollisions(targetNewPosition, target->size);
+
+			if (targetScreenNormals.x == 0)
+			{
+				target->position.x = targetNewPosition.x;
+			}
+			if (targetScreenNormals.y == 0)
+			{
+				target->position.y = targetNewPosition.y;
+			}
+
+			cout << "COLLISION -- " << target->name << endl;
+			cout << "	targetVel: {x:" << target->velocity.x << ", y:" << target->velocity.y << "}" << endl;
+			cout << "	hitNormal: {x:" << hitNormal.x << ", y:" << hitNormal.y << "}" << endl;
+			cout << "	separation: {x:" << separation.x << ", y:" << separation.y << "}" << endl;
+			cout << "	depth: " << depth << endl
+				 << endl;
 		}
 	}
 };
@@ -231,8 +280,12 @@ public:
 	{
 		for (size_t i = 0; i < children.size(); i++)
 		{
+			if (PhysicsObject *element = dynamic_cast<PhysicsObject *>(children[i]))
+			{
+				physicsManager.Solve(element, children);
+			}
 			children[i]->Update();
-				}
+		}
 	}
 
 	void Draw()
@@ -240,10 +293,6 @@ public:
 		for (size_t i = 0; i < children.size(); i++)
 		{
 			children[i]->Draw();
-			if (PhysicsObject *element = dynamic_cast<PhysicsObject *>(children[i]))
-			{
-				physicsManager.Solve(element, children);
-			}
 		}
 	}
 

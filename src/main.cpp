@@ -28,6 +28,11 @@ int main()
     Vector2 startPosition = GetMousePosition();
     Vector2 lastPosition;
 
+    auto spawnedCube = new Cube();
+    spawnedCube->position = {75, 75};
+    spawnedCube->size = {100, 100};
+    space.AddElement("staticCube", spawnedCube);
+
     PhysicsCube *selectedCube = nullptr;
 
     while (!WindowShouldClose())
@@ -121,8 +126,7 @@ int main()
         list<string> texts = {
             ("GESTURE: " + to_string(GetGestureDetected())),
             ("POSX: " + to_string(pos.x)),
-            ("POSY: " + to_string(pos.y))
-        };
+            ("POSY: " + to_string(pos.y))};
 
         if (selectedCube != nullptr)
         {
