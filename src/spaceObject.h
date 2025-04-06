@@ -7,6 +7,8 @@ using namespace std;
 #include "raylib.h"
 #include "raymath.h"
 
+#include <iostream>
+
 class Object
 {
 public:
@@ -34,7 +36,7 @@ public:
 private:
 };
 
-const Vector2 gravity = {0, 10};
+const Vector2 gravity = {0, 10}; // x: 0, y: 10
 
 // Returns the collision normal
 Vector2 CheckScreenCollisions(Vector2 pos, Vector2 sizeBounds)
@@ -59,10 +61,16 @@ public:
 	Vector2 force;
 	float mass = 1.0f;
 	bool hasGravity = true;
+
 	const float terminalVelocity = 500.0f; // Max velocity (pixels per second)
+	const float idleThreshold = 25.0f;
+
+	bool isIdle = false;
+	bool colliding = false;
 
 	void Update() override
 	{
+		isIdle = Vector2Length(velocity) < idleThreshold && Vector2Length(force) < idleThreshold && colliding;
 
 		if (hasGravity)
 		{
@@ -74,6 +82,9 @@ public:
 			Vector2Add(velocity, Vector2Scale(force, 1.0f / mass)),
 			Vector2Scale({1, 1}, -terminalVelocity),
 			Vector2Scale({1, 1}, terminalVelocity));
+
+		// Reset the force after updating velocity (to avoid accumulation of forces)
+		// force = {0, 0};
 
 		Vector2 newPosition = Vector2Add(position, Vector2Scale(velocity, GetFrameTime()));
 		Vector2 screenHitNormals = CheckScreenCollisions(newPosition, size);
@@ -114,8 +125,6 @@ public:
 
 	void Draw() override
 	{
-		// DrawRectanglePro({position.x, position.y, size.x, size.y}, {size.x * 0.5f, size.y * 0.5f}, rotation, ORANGE);
-
 		Rectangle source = {0, 0, (float)texture.width, (float)texture.height};
 		Rectangle dest = {position.x, position.y, size.x, size.y};
 		Vector2 texOrigin = {size.x * origin.x, size.y * origin.y};
@@ -129,8 +138,8 @@ class Cube : public Object
 public:
 	void Draw() override
 	{
-		// cout << "hello coming from Cube { x:" << position.x << ", y:" << position.y << " }" << endl;
-		DrawRectanglePro({position.x, position.y, 100, 100}, {50, 50}, rotation, RED);
+		Rectangle cubeRect = this->getRec();
+		DrawRectanglePro(cubeRect, {0, 0}, rotation, RED);
 	}
 };
 
@@ -150,7 +159,9 @@ class PhysicsManager
 public:
 	void Solve(PhysicsObject *target, vector<Object *> children)
 	{
-		for (size_t i = 0; i < children.size(); i++)
+		size_t childrenSize = children.size();
+		bool hasCollided = false;
+		for (size_t i = 0; i < childrenSize; i++)
 		{
 			Object *element = children[i];
 
@@ -172,6 +183,7 @@ public:
 			Vector2 hitNormal = {0, 0};
 			float depth = 0.0f;
 
+			// Check collision sides and determine normal and depth
 			if (overlapRect.width < overlapRect.height)
 			{
 				hitNormal = {targetRect.x < elementRect.x ? -1.0f : 1.0f, 0.0f};
@@ -183,58 +195,83 @@ public:
 				depth = overlapRect.height;
 			}
 
-			float dotProductTarget = Vector2DotProduct(target->velocity, hitNormal);
+			hasCollided = (depth > 0.1f);
 
-			if (dotProductTarget < 0)
-			{
-				target->velocity = Vector2Subtract(target->velocity, Vector2Scale(hitNormal, 2 * dotProductTarget));
-			}
-
-			// Solve collision here...
+			// Apply separation to both objects after collision
 			Vector2 separation = Vector2Scale(hitNormal, depth);
 
-			if (PhysicsObject *physElement = dynamic_cast<PhysicsObject *>(children[i]))
+			float friction = 0.0f;
+
+			if (PhysicsObject *physElement = dynamic_cast<PhysicsObject *>(element))
 			{
 				separation = Vector2Scale(hitNormal, depth / 2);
-				float dotProductElement = Vector2DotProduct(physElement->velocity, hitNormal); //(physElement->velocity.x * hitNormal.x) + (physElement->velocity.y * hitNormal.y);
 
+				// Apply to the other object as well (if it's a PhysicsObject)
+				physElement->position = Vector2Subtract(physElement->position, separation);
+
+				// Reflect and adjust its velocity
+				float dotProductElement = Vector2DotProduct(physElement->velocity, hitNormal);
 				if (dotProductElement < 0)
 				{
-					physElement->velocity = Vector2Subtract(physElement->velocity, Vector2Scale(hitNormal, 2 * dotProductElement));
+					Vector2 velocityScale = Vector2Scale(Vector2Negate(hitNormal), 2 * dotProductElement);
+					physElement->velocity = Vector2Subtract(physElement->velocity, Vector2ClampValue(velocityScale, 0, 100000));
 				}
 
-				Vector2 newPosition = Vector2Subtract(physElement->position, separation);
-				Vector2 elementScreenNormals = CheckScreenCollisions(newPosition, physElement->size);
+				float restitution = 1.0f;
 
-				if (elementScreenNormals.x == 0)
+				// Handle bouncyness
+				Vector2 velocityChange = Vector2Scale(hitNormal, 2 * Vector2DotProduct(physElement->velocity, hitNormal) * (1 + restitution));
+				physElement->velocity = Vector2Subtract(physElement->velocity, velocityChange);
+
+				// Add friction to the velocity after the collision
+				Vector2 frictionForce = Vector2Scale(physElement->velocity, 1 - friction); // Apply friction
+				physElement->velocity = frictionForce;
+
+				Vector2 relativeVelocity = Vector2Subtract(target->velocity, physElement->velocity);
+				float velocityAlongNormal = Vector2DotProduct(relativeVelocity, hitNormal); // Project relative velocity onto the normal
+
+				// If the objects are moving apart, no need to do anything
+				if (velocityAlongNormal < 0)
 				{
-					physElement->position.x = newPosition.x;
+					// Calculate the mass-based velocity transfer (elastic collision)
+					float massA = target->mass;
+					float massB = physElement->mass;
+
+					// Calculate the change in velocity for both objects along the collision normal
+					float impulse = velocityAlongNormal / (massA + massB);
+
+					// Update the velocities based on the impulse
+					physElement->velocity = Vector2Add(physElement->velocity, Vector2Scale(hitNormal, impulse * massA));
 				}
-				if (elementScreenNormals.y == 0)
-				{
-					physElement->position.y = newPosition.y;
-				}
 			}
 
-			Vector2 targetNewPosition = Vector2Add(target->position, separation);
-			Vector2 targetScreenNormals = CheckScreenCollisions(targetNewPosition, target->size);
-
-			if (targetScreenNormals.x == 0)
+			// Reflect velocity based on collision normal (bounce effect)
+			float dotProductTarget = Vector2DotProduct(target->velocity, hitNormal);
+			if (dotProductTarget < 0)
 			{
-				target->position.x = targetNewPosition.x;
-			}
-			if (targetScreenNormals.y == 0)
-			{
-				target->position.y = targetNewPosition.y;
+				Vector2 velocityScale = Vector2Scale(hitNormal, 2 * dotProductTarget);
+				target->velocity = Vector2Subtract(target->velocity, Vector2ClampValue(velocityScale, 0, 100000));
 			}
 
-			cout << "COLLISION -- " << target->name << endl;
-			cout << "	targetVel: {x:" << target->velocity.x << ", y:" << target->velocity.y << "}" << endl;
-			cout << "	hitNormal: {x:" << hitNormal.x << ", y:" << hitNormal.y << "}" << endl;
-			cout << "	separation: {x:" << separation.x << ", y:" << separation.y << "}" << endl;
-			cout << "	depth: " << depth << endl
-				 << endl;
+			// Add friction to the velocity after the collision
+			Vector2 frictionForce = Vector2Scale(target->velocity, 1 - friction); // Apply friction
+			target->velocity = frictionForce;
+
+			target->position = Vector2Add(target->position, separation);
+
+			// cout << "COLLISION -- " << target->name << endl;
+			// cout << "	targetVel: {x:" << target->velocity.x << ", y:" << target->velocity.y << "}" << endl;
+			// cout << "	hitNormal: {x:" << hitNormal.x << ", y:" << hitNormal.y << "}" << endl;
+			// cout << "	separation: {x:" << separation.x << ", y:" << separation.y << "}" << endl;
+			// cout << "	depth: " << depth << endl
+			// 	 << endl;
 		}
+
+		target->colliding = hasCollided;
+
+		// Handle screen boundary collisions
+		// HandleScreenCollisions(target);
+		target->position = Vector2Add(target->position, Vector2Scale(target->velocity, GetFrameTime()));
 	}
 };
 
@@ -282,6 +319,9 @@ public:
 		{
 			if (PhysicsObject *element = dynamic_cast<PhysicsObject *>(children[i]))
 			{
+				// if (element->isIdle) continue;
+
+				cout << element->name << "(IDLE-" << (element->isIdle) << ", COLLIDING-" << element->colliding << "): " << "velocity(x:" << element->velocity.x << ", y:" << element->velocity.y << ")" << " force(x:" << element->force.x << ", y:" << element->force.y << ")" << endl;
 				physicsManager.Solve(element, children);
 			}
 			children[i]->Update();

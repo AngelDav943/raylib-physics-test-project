@@ -27,7 +27,7 @@ RAYLIB_PATH        	   ?= C:/raylib/raylib
 
 # Define Android architecture (armeabi-v7a, arm64-v8a, x86, x86-64) and API version
 ANDROID_ARCH           ?= ARM64
-ANDROID_API_VERSION     = 33
+ANDROID_API_VERSION     = 31
 ifeq ($(ANDROID_ARCH),ARM)
     ANDROID_ARCH_NAME   = armeabi-v7a
 endif
@@ -319,7 +319,7 @@ sign_project_apk_package:
 		-v \
 		--v1-signing-enabled true \
 		--v2-signing-enabled true \
-		--min-sdk-version 32 \
+		--min-sdk-version 31 \
 		"$(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).unsigned.apk"
 	@echo SIGNING ENDED
 
@@ -336,13 +336,12 @@ zipalign_project_apk_package:
 		-v \
 		--v1-signing-enabled true \
 		--v2-signing-enabled true \
-		--min-sdk-version 32 \
+		--min-sdk-version 31 \
 		"$(PROJECT_BUILD_PATH)/bin/$(PROJECT_NAME).aligned.apk"
 
 # Install $(PROJECT_NAME).apk to default emulator/device
 # NOTE: Use -e (emulator) or -d (device) parameters if required
 install:
-	$(ANDROID_PLATFORM_TOOLS)/adb shell pm uninstall com.$(APP_COMPANY_NAME).$(APP_PRODUCT_NAME)
 	$(ANDROID_PLATFORM_TOOLS)/adb install $(PROJECT_NAME).apk
 
 start:

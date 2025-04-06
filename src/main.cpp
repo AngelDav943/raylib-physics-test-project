@@ -14,8 +14,12 @@ int main()
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(800, 600, "Physics!");
     ChangeDirectory("assets");
+    float cubeSize = 100.0f;
+    float throwingForce = 5.0f;
 #else
     InitWindow(0, 0, "Physics!");
+    float cubeSize = 150.0f;
+    float throwingForce = 10.0f;
 #endif
 
     Texture2D cubeTexture = LoadTexture("ball.png");
@@ -23,17 +27,19 @@ int main()
 
     int spawnedAmount = 0;
 
-    bool dragging = false;
     bool throwing = false;
     Vector2 startPosition = GetMousePosition();
-    Vector2 lastPosition;
 
-    auto spawnedCube = new Cube();
-    spawnedCube->position = {75, 75};
-    spawnedCube->size = {100, 100};
-    space.AddElement("staticCube", spawnedCube);
-
-    PhysicsCube *selectedCube = nullptr;
+    auto staticCube1 = new Cube();
+    staticCube1->position = {75, 75};
+    staticCube1->size = {cubeSize, cubeSize};
+    space.AddElement("staticCube", staticCube1);
+    
+    auto staticCube2 = new Cube();
+    staticCube2->position = {0, static_cast<float>(GetScreenHeight())};
+    staticCube2->origin = {0.0f, 0.5f};
+    staticCube2->size = {static_cast<float>(GetScreenWidth()), cubeSize};
+    space.AddElement("staticCube", staticCube2);
 
     while (!WindowShouldClose())
     {
@@ -53,37 +59,7 @@ int main()
 
         if (checkGestures == true)
         {
-            // if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-
-            // if (selectedCube == nullptr && (IsGestureDetected(GESTURE_TAP) || IsGestureDetected(GESTURE_HOLD) || IsGestureDetected(GESTURE_DRAG)))
-            // {
-            //     vector<Object *> children = space.GetChildren();
-            //     for (size_t i = 0; i < children.size(); i++)
-            //     {
-            //         if (PhysicsCube *element = dynamic_cast<PhysicsCube *>(children[i]))
-            //         {
-            //             Rectangle rec = {
-            //                 element->position.x,
-            //                 element->position.y,
-            //                 element->size.x,
-            //                 element->size.y};
-
-            //             bool selecting = CheckCollisionPointRec(GetTouchPosition(0), rec);
-            //             if (selecting == true)
-            //             {
-            //                 selectedCube = element;
-            //             }
-            //         }
-            //     }
-            //     if (selectedCube != nullptr)
-            //     {
-            //         selectedCube->hasGravity = false;
-            //         lastPosition = GetTouchPosition(0);
-            //         dragging = true;
-            //     }
-            // }
-
-            if (IsGestureDetected(GESTURE_TAP) && selectedCube == nullptr)
+            if (IsGestureDetected(GESTURE_TAP))
             {
                 startPosition = GetTouchPosition(0);
                 throwing = true;
@@ -104,8 +80,8 @@ int main()
                     auto spawnedCube = new PhysicsCube();
                     spawnedCube->position = startPosition;
                     spawnedCube->texture = cubeTexture;
-                    spawnedCube->size = {100, 100};
-                    spawnedCube->velocity = Vector2Scale(targetVelocity, 5);
+                    spawnedCube->size = {cubeSize, cubeSize};
+                    spawnedCube->velocity = Vector2Scale(targetVelocity, throwingForce);
                     // spawnedCube->hasGravity = false;
                     space.AddElement("spawned" + std::to_string(spawnedAmount), spawnedCube);
                     spawnedAmount++;
@@ -127,11 +103,6 @@ int main()
             ("GESTURE: " + to_string(GetGestureDetected())),
             ("POSX: " + to_string(pos.x)),
             ("POSY: " + to_string(pos.y))};
-
-        if (selectedCube != nullptr)
-        {
-            texts.push_front("Selected: " + selectedCube->name);
-        }
 
         Color textColor = BLUE;
         if (throwing)
